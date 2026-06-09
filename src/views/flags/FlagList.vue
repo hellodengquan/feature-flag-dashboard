@@ -126,10 +126,14 @@
                 :max="100"
                 :step="5"
                 :show-tooltip="true"
+                :disabled="isRolling(row.id)"
                 tooltip-class="rollout-tooltip"
                 @change="(val) => handleRolloutChange(row, val)"
               />
-              <span class="rollout-percent">{{ row.rolloutPercent }}%</span>
+              <span class="rollout-percent" :class="{ 'rolling': isRolling(row.id) }">
+                <el-icon v-if="isRolling(row.id)" class="is-rolling"><Loading /></el-icon>
+                {{ row.rolloutPercent }}%
+              </span>
             </div>
           </template>
         </el-table-column>
@@ -182,21 +186,33 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <div class="action-buttons">
               <el-switch
-              v-model="row._switchValue"
-              :model-value="row.status !== 'disabled' && row.status !== 'inactive'"
-              @update:model-value="(val) => handleToggle(row, val)"
-              active-text="开"
-              inactive-text="关"
-              inline-prompt
-              style="--el-switch-on-color: #67c23a;"
-            />
-            <el-button link type="primary" size="small" :icon="View" @click="handleView(row)">详情</el-button>
-            <el-button link type="primary" size="small" :icon="Edit" @click="handleEdit(row)">编辑</el-button>
-            <el-button link type="danger" size="small" :icon="Delete" @click="handleDelete(row)">删除</el-button>
+                v-model="row._switchValue"
+                :model-value="row.status !== 'disabled' && row.status !== 'inactive'"
+                :loading="isToggling(row.id)"
+                :disabled="isToggling(row.id)"
+                @update:model-value="(val) => handleToggle(row, val)"
+                active-text="开"
+                inactive-text="关"
+                inline-prompt
+                style="--el-switch-on-color: #67c23a;"
+              />
+              <el-button link type="primary" size="small" :icon="View" @click="handleView(row)">详情</el-button>
+              <el-button link type="primary" size="small" :icon="Edit" @click="handleEdit(row)">编辑</el-button>
+              <el-button
+                link
+                type="danger"
+                size="small"
+                :icon="Delete"
+                :loading="isDeleting(row.id)"
+                :disabled="isDeleting(row.id)"
+                @click="handleDelete(row)"
+              >
+                删除
+              </el-button>
             </div>
           </template>
         </el-table-column>
@@ -400,7 +416,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, Search, RefreshRight, View, Edit, Delete,
   Switch as SwitchIcon, User, Clock, TrendCharts,
-  Collection, CircleCheck, CircleClose
+  Collection, CircleCheck, CircleClose, Loading
 } from '@element-plus/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -457,9 +473,16 @@ const dialogVisible = ref(false)
 const detailVisible = ref(false)
 const isEditMode = ref(false)
 const submitting = ref(false)
+const togglingMap = ref(new Map())
+const rollingMap = ref(new Map())
+const deletingId = ref(null)
 const formRef = ref(null)
 const currentFlag = ref(null)
 const chartOption = ref({})
+
+const isToggling = (id) => togglingMap.value.get(id) || false
+const isRolling = (id) => rollingMap.value.get(id) || false
+const isDeleting = (id) => deletingId.value === id
 
 const dialogTitle = computed(() => isEditMode.value ? '编辑开关' : '新建开关')
 
@@ -583,57 +606,102 @@ const submitForm = async () => {
   })
 }
 
-const handleToggle = (row, val) => {
+const handleToggle = async (row, val) => {
+  if (isToggling(row.id)) return
   let nextStatus = val ? (row.rolloutPercent > 0 ? 'gradual' : 'active') : 'disabled'
   if (val && row.rolloutPercent === 100) {
     nextStatus = 'active'
   }
   const actionText = val ? '启用' : '禁用'
-  ElMessageBox.confirm(
-    `确定要${actionText}「${row.name}吗？${val ? '功能将对目标人群生效' : '功能将对所有用户关闭'}`,
-    '操作确认',
-    {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: val ? 'success' : 'warning',
-      confirmButtonClass: val ? 'el-button--success' : ''
-    }
-  ).then(() => {
-    store.toggleFlagStatus(row.id, nextStatus)
-  }).catch(() => {})
+  togglingMap.value.set(row.id, true)
+  try {
+    await ElMessageBox.confirm(
+      `确定要${actionText}「${row.name}」吗？${val ? '功能将对目标人群生效' : '功能将对所有用户关闭'}`,
+      '操作确认',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: val ? 'success' : 'warning',
+        confirmButtonClass: val ? 'el-button--success' : '',
+        beforeClose: (action, instance, done) => {
+          if (action === 'confirm') {
+            instance.confirmButtonLoading = true
+          }
+          done()
+        }
+      }
+    )
+    setTimeout(() => {
+      store.toggleFlagStatus(row.id, nextStatus)
+      togglingMap.value.delete(row.id)
+    }, 200)
+  } catch (e) {
+    togglingMap.value.delete(row.id)
+    row._switchValue = !val
+    ElMessage.info('已取消操作')
+  }
 }
 
-const handleRolloutChange = (row, val) => {
-  ElMessageBox.confirm(
-    `确定要将「${row.name}的发布比例调整为 ${val}% 吗？`,
-    '调整发布比例',
-    {
-      confirmButtonText: '确认调整',
-      cancelButtonText: '取消',
-      type: 'warning'
-    }
-  ).then(() => {
-    store.updateRolloutPercent(row.id, val)
-  }).catch(() => {
+const handleRolloutChange = async (row, val) => {
+  if (isRolling(row.id)) return
+  rollingMap.value.set(row.id, true)
+  try {
+    await ElMessageBox.confirm(
+      `确定要将「${row.name}」的发布比例调整为 ${val}% 吗？`,
+      '调整发布比例',
+      {
+        confirmButtonText: '确认调整',
+        cancelButtonText: '取消',
+        type: 'warning',
+        beforeClose: (action, instance, done) => {
+          if (action === 'confirm') {
+            instance.confirmButtonLoading = true
+          }
+          done()
+        }
+      }
+    )
+    setTimeout(() => {
+      store.updateRolloutPercent(row.id, val)
+      rollingMap.value.delete(row.id)
+    }, 200)
+  } catch (e) {
+    rollingMap.value.delete(row.id)
     const original = store.flags.find(f => f.id === row.id)
     if (original) {
       row.rolloutPercent = original.rolloutPercent
     }
-  })
+    ElMessage.info('已取消调整')
+  }
 }
 
-const handleDelete = (row) => {
-  ElMessageBox.confirm(
-    `确定要删除开关「${row.name}吗？此操作不可恢复。`,
-    '删除确认',
-    {
-      confirmButtonText: '确认删除',
-      cancelButtonText: '取消',
-      type: 'error'
-    }
-  ).then(() => {
-    store.deleteFlag(row.id)
-  }).catch(() => {})
+const handleDelete = async (row) => {
+  if (isDeleting(row.id)) return
+  deletingId.value = row.id
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除开关「${row.name}」吗？此操作不可恢复。`,
+      '删除确认',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'error',
+        beforeClose: (action, instance, done) => {
+          if (action === 'confirm') {
+            instance.confirmButtonLoading = true
+          }
+          done()
+        }
+      }
+    )
+    setTimeout(() => {
+      store.deleteFlag(row.id)
+      deletingId.value = null
+    }, 200)
+  } catch (e) {
+    deletingId.value = null
+    ElMessage.info('已取消删除')
+  }
 }
 
 const goToAudience = (row) => {
@@ -720,6 +788,26 @@ onMounted(() => {
   gap: 6px;
   color: #606266;
   font-size: 13px;
+}
+
+.rollout-percent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.2s;
+
+  &.rolling {
+    color: #409eff;
+  }
+
+  .is-rolling {
+    animation: spin-rolling 1s linear infinite;
+  }
+}
+
+@keyframes spin-rolling {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .action-buttons {

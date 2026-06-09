@@ -78,9 +78,16 @@
                       <el-dropdown-item @click.stop="handleView(audience)">
                         <el-icon><View /></el-icon>查看详情
                       </el-dropdown-item>
-                      <el-dropdown-item divided @click.stop="handleDelete(audience)" :disabled="audience.flagCount > 0">
-                        <el-icon style="color: #f56c6c;"><Delete /></el-icon>
-                        <span style="color: #f56c6c;">删除</span>
+                      <el-dropdown-item
+                        divided
+                        @click.stop="handleDelete(audience)"
+                        :disabled="audience.flagCount > 0 || isDeleting(audience.id)"
+                      >
+                        <el-icon v-if="isDeleting(audience.id)" class="is-spin" style="color: #909399;"><Loading /></el-icon>
+                        <el-icon v-else style="color: #f56c6c;"><Delete /></el-icon>
+                        <span :style="{ color: isDeleting(audience.id) ? '#909399' : '#f56c6c' }">
+                          {{ isDeleting(audience.id) ? '删除中...' : '删除' }}
+                        </span>
                       </el-dropdown-item>
                     </el-dropdown-menu>
                   </template>
@@ -344,7 +351,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, Search, Edit, Delete, View, MoreFilled,
   User, UserFilled, Clock, Filter, Avatar, Connection,
-  CopyDocument, Switch as SwitchIcon
+  CopyDocument, Switch as SwitchIcon, Loading
 } from '@element-plus/icons-vue'
 import { useFeatureStore } from '@/stores/feature'
 import { operatorMap } from '@/mock/data'
@@ -378,8 +385,11 @@ const dialogVisible = ref(false)
 const detailVisible = ref(false)
 const isEditMode = ref(false)
 const submitting = ref(false)
+const deletingId = ref(null)
 const formRef = ref(null)
 const currentAudience = ref(null)
+
+const isDeleting = (id) => deletingId.value === id
 
 const relatedFlags = computed(() => {
   if (!currentAudience.value) return []
@@ -487,14 +497,33 @@ const handleView = (audience) => {
   detailVisible.value = true
 }
 
-const handleDelete = (audience) => {
-  ElMessageBox.confirm(
-    `确定要删除人群「${audience.name}吗？`,
-    '删除确认',
-    { confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'error' }
-  ).then(() => {
-    store.deleteAudience(audience.id)
-  }).catch(() => {})
+const handleDelete = async (audience) => {
+  if (isDeleting(audience.id)) return
+  deletingId.value = audience.id
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除人群「${audience.name}」吗？`,
+      '删除确认',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        type: 'error',
+        beforeClose: (action, instance, done) => {
+          if (action === 'confirm') {
+            instance.confirmButtonLoading = true
+          }
+          done()
+        }
+      }
+    )
+    setTimeout(() => {
+      store.deleteAudience(audience.id)
+      deletingId.value = null
+    }, 200)
+  } catch (e) {
+    deletingId.value = null
+    ElMessage.info('已取消删除')
+  }
 }
 
 const addRule = () => {
@@ -708,5 +737,15 @@ onMounted(() => {})
     margin-bottom: 12px;
     color: #303133;
   }
+}
+
+.is-spin {
+  animation: spin-icon 1s linear infinite;
+  display: inline-flex;
+}
+
+@keyframes spin-icon {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

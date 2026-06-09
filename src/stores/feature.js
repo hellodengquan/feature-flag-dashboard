@@ -3,6 +3,20 @@ import { ref, computed } from 'vue'
 import { mockFlags, mockAudiences, mockOperationLogs } from '@/mock/data'
 import { ElMessage, ElNotification } from 'element-plus'
 
+const _uidCounter = ref(0)
+const generateUid = () => {
+  _uidCounter.value++
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    try {
+      const uuid = globalThis.crypto.randomUUID()
+      const short = uuid.replace(/-/g, '').slice(0, 12)
+      return Number(`1${Date.now().toString().slice(-9)}${_uidCounter.value.toString().padStart(3, '0')}${parseInt(short, 36).toString().slice(0, 8)}`)
+    } catch (e) {}
+  }
+  const rand = Math.floor(Math.random() * 1000000).toString().padStart(6, '0')
+  return Number(`${Date.now().toString()}${_uidCounter.value.toString().padStart(4, '0')}${rand}`)
+}
+
 export const useFeatureStore = defineStore('feature', () => {
   const flags = ref([...mockFlags])
   const audiences = ref([...mockAudiences])
@@ -19,7 +33,7 @@ export const useFeatureStore = defineStore('feature', () => {
 
   const addLog = (log) => {
     operationLogs.value.unshift({
-      id: Date.now(),
+      id: generateUid(),
       ...log,
       ip: '192.168.1.' + Math.floor(Math.random() * 255),
       createdAt: new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')
@@ -50,7 +64,7 @@ export const useFeatureStore = defineStore('feature', () => {
 
   const createFlag = (data) => {
     const newFlag = {
-      id: Date.now(),
+      id: generateUid(),
       rolloutPercent: 0,
       totalImpressions: 0,
       successRate: 0,
@@ -188,7 +202,7 @@ export const useFeatureStore = defineStore('feature', () => {
 
   const createAudience = (data) => {
     const newAudience = {
-      id: Date.now(),
+      id: generateUid(),
       userCount: Math.floor(Math.random() * 500000) + 10000,
       flagCount: 0,
       createdAt: new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-'),
