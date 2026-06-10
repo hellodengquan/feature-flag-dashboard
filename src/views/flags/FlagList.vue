@@ -235,6 +235,10 @@
       :title="dialogTitle"
       width="720px"
       destroy-on-close
+      :close-on-click-modal="!submitting"
+      :close-on-press-escape="!submitting"
+      :show-close="!submitting"
+      :before-close="handleFlagDialogBeforeClose"
       @closed="handleDialogClosed"
     >
       <el-form
@@ -341,8 +345,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitForm">
+        <el-button @click="handleFlagDialogCancel" :disabled="submitting">取消</el-button>
+        <el-button type="primary" :loading="submitting" :disabled="submitting" @click="submitForm">
           {{ isEditMode ? '保存修改' : '确认创建' }}
         </el-button>
       </template>
@@ -581,29 +585,52 @@ const handleDialogClosed = () => {
   formRef.value?.resetFields()
 }
 
+const handleFlagDialogCancel = () => {
+  if (submitting.value) return
+  dialogVisible.value = false
+}
+
+const handleFlagDialogBeforeClose = (done) => {
+  if (submitting.value) {
+    ElMessage.warning('正在提交数据，请稍候...')
+    return
+  }
+  done()
+}
+
 const submitForm = async () => {
+  if (submitting.value) return
   if (!formRef.value) return
-  await formRef.value.validate((valid) => {
-    if (!valid) return
-    submitting.value = true
-    setTimeout(() => {
-      const audience = store.audiences.find(a => a.code === formData.audience)
-      const data = {
-        ...formData,
-        audienceName: audience?.name || '未分配'
+  submitting.value = true
+  try {
+    await new Promise((resolve, reject) => {
+      formRef.value.validate((valid) => {
+        valid ? resolve() : reject(new Error('VALIDATE_FAILED'))
+      })
+    })
+    await new Promise(resolve => setTimeout(resolve, 500))
+    const audience = store.audiences.find(a => a.code === formData.audience)
+    const data = {
+      ...formData,
+      audienceName: audience?.name || '未分配'
+    }
+    if (isEditMode.value) {
+      const flag = store.flags.find(f => f.key === formData.key)
+      if (flag) {
+        store.updateFlag(flag.id, data)
       }
-      if (isEditMode.value) {
-        const flag = store.flags.find(f => f.key === formData.key)
-        if (flag) {
-          store.updateFlag(flag.id, data)
-        }
-      } else {
-        store.createFlag(data)
-      }
-      submitting.value = false
-      dialogVisible.value = false
-    }, 500)
-  })
+    } else {
+      store.createFlag(data)
+    }
+    dialogVisible.value = false
+  } catch (e) {
+    if (e && e.message !== 'VALIDATE_FAILED') {
+      ElMessage.error('提交失败，请重试')
+      console.error(e)
+    }
+  } finally {
+    submitting.value = false
+  }
 }
 
 const handleToggle = async (row, val) => {

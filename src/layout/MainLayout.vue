@@ -74,7 +74,15 @@ const menuRoutes = computed(() => {
   return mainRoute?.children?.filter(c => c.meta?.title) || []
 })
 
-const activeMenu = computed(() => route.path)
+const activeMenu = computed(() => {
+  const currentPath = route.path
+  const target = menuRoutes.value.find(m => {
+    const full = resolvePath(m.path)
+    return currentPath === full || currentPath.startsWith(full + '/')
+  })
+  return target ? resolvePath(target.path) : currentPath
+})
+
 const currentTitle = computed(() => route.meta?.title || '首页')
 
 const resolvePath = (path) => path.startsWith('/') ? path : `/${path}`
