@@ -31,6 +31,13 @@ export const useFeatureStore = defineStore('feature', () => {
     return { total, active, gradual, disabled, totalAudiences: audiences.value.length, totalUsers }
   })
 
+  const _incAudienceFlagCount = (code, delta) => {
+    const audience = audiences.value.find(a => a.code === code)
+    if (audience) {
+      audience.flagCount = Math.max(0, (audience.flagCount || 0) + delta)
+    }
+  }
+
   const addLog = (log) => {
     operationLogs.value.unshift({
       id: generateUid(),
@@ -74,6 +81,9 @@ export const useFeatureStore = defineStore('feature', () => {
       ...data
     }
     flags.value.unshift(newFlag)
+    if (data.audience) {
+      _incAudienceFlagCount(data.audience, 1)
+    }
     addLog({
       operator: '管理员',
       action: '创建开关',
@@ -89,10 +99,20 @@ export const useFeatureStore = defineStore('feature', () => {
     const index = flags.value.findIndex(f => f.id === id)
     if (index !== -1) {
       const oldFlag = { ...flags.value[index] }
+      const oldAudience = oldFlag.audience
+      const newAudience = data.audience
       flags.value[index] = {
         ...flags.value[index],
         ...data,
         updatedAt: new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')
+      }
+      if (newAudience !== undefined && oldAudience !== newAudience) {
+        if (oldAudience) {
+          _incAudienceFlagCount(oldAudience, -1)
+        }
+        if (newAudience) {
+          _incAudienceFlagCount(newAudience, 1)
+        }
       }
       ElMessage.success('更新成功')
       return flags.value[index]
@@ -173,6 +193,9 @@ export const useFeatureStore = defineStore('feature', () => {
     const index = flags.value.findIndex(f => f.id === id)
     if (index !== -1) {
       const flag = flags.value[index]
+      if (flag.audience) {
+        _incAudienceFlagCount(flag.audience, -1)
+      }
       flags.value.splice(index, 1)
       addLog({
         operator: '管理员',
@@ -263,6 +286,15 @@ export const useFeatureStore = defineStore('feature', () => {
   const assignAudienceToFlag = (flagId, audienceCode, audienceName) => {
     const flag = flags.value.find(f => f.id === flagId)
     if (flag) {
+      const oldAudience = flag.audience
+      if (oldAudience !== audienceCode) {
+        if (oldAudience) {
+          _incAudienceFlagCount(oldAudience, -1)
+        }
+        if (audienceCode) {
+          _incAudienceFlagCount(audienceCode, 1)
+        }
+      }
       flag.audience = audienceCode
       flag.audienceName = audienceName
       flag.updatedAt = new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')

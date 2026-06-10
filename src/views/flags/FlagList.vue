@@ -458,9 +458,16 @@ const filteredFlags = computed(() => {
   return store.getFlags(filterForm)
 })
 
-watch(filterForm, () => {
+const searchQuery = computed(() => filterForm.keyword)
+const activeCategory = computed(() => `${filterForm.status}|${filterForm.environment}|${filterForm.tag}`)
+
+watch(searchQuery, () => {
   currentPage.value = 1
-}, { deep: true })
+})
+
+watch(activeCategory, () => {
+  currentPage.value = 1
+})
 
 const applyFilter = () => {
   currentPage.value = 1
@@ -471,6 +478,7 @@ const resetFilter = () => {
   filterForm.status = ''
   filterForm.environment = ''
   filterForm.tag = ''
+  currentPage.value = 1
 }
 
 const dialogVisible = ref(false)
